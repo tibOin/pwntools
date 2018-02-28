@@ -3,10 +3,115 @@ from __future__ import absolute_import
 import time
 import types
 
+from getpass import getpass
+
 from pwnlib import term
 from pwnlib.log import getLogger
 
+from pygments import highlight as hl
+from pygments.lexers import guess_lexer, guess_lexer_for_filename
+from pygments.formatters import TerminalFormatter, Terminal256Formatter, TerminalTrueColorFormatter
+from pygments.util import ClassNotFound
+
 log = getLogger(__name__)
+
+def ask(prompt, default=None, not_empty=None):
+    """Presents the user with prompt which the user might answer.
+
+    You can specify a default value or if the user answer must not be empty.
+
+    Arguments:
+      prompt (str):               The prompt to show
+      default:                    The default option
+      not_empty (bool, optional): The answer must not be empty
+
+    Returns:
+      The user answer as a string (might be an empty string or default if provided)
+
+    Examples:
+      >>> ask('Question:')
+       [?] Question:
+      ''
+
+      >>> ask('Question:', default='Default answer')
+       [?] Question: [Default answer]
+      'Default answer'
+
+      >>> ask('Question:', not_empty=True)
+       [?] Question:
+       [?] Question:
+       [?] Question:
+       [?!] Question: answer
+      'answer'
+    """
+
+    if not isinstance(not_empty, (bool, types.NoneType)):
+        raise ValueError('ask(): not_empty must be a boolean or None')
+
+    qm = term.text.bold_cyan('?')
+    cprompt = ' [{qm}] {prompt} {default}'
+    if default:
+        cdef = '[{}] '.format(default)
+
+    resp = raw_input(cprompt.format(qm=qm,
+                                    prompt=prompt,
+                                    default=cdef if default else '')).strip()
+    if default and not resp:
+        return default
+    else:
+        if not_empty is True:
+            i = 0
+            while True:
+                if not resp:
+                    if i < 2:
+                        qm = term.text.bold_yellow('?')
+                        i += 1   # Don't need to continue incrementing after
+                    else:
+                        qm = term.text.bold_red('?!')
+                    resp = raw_input(cprompt.format(qm=qm,
+                                                    prompt=prompt,
+                                                    default=cdef if default else '')).strip()
+                else:
+                    break
+        return resp
+
+def askpass(prompt, default=None, not_empty=None):
+    """Ask for sensitive data that won't be displayed.
+
+    You can specify a default value or if the user answer must not be empty.
+    This function works exactly the same as the function `ask()` above.
+
+    Arguments:
+      prompt (str):               The prompt to show
+      default:                    The default option
+      not_empty (bool, optional): The answer must not be empty
+
+    Returns:
+      The user answer as a string (might be an empty string or default if provided)
+    """
+
+    if not isinstance(not_empty, (bool, types.NoneType)):
+        raise ValueError('ask(): not_empty must be a boolean or None')
+
+    cprompt = ' [{qm}] {prompt} {default}'
+
+    if default:
+        cdef = '[default] '
+    resp = getpass(cprompt.format(qm=term.text.bold_magenta('?'),
+                                    prompt=prompt,
+                                    default=cdef if default else '')).strip()
+    if default and not resp:
+        return default
+    else:
+        if not_empty is True:
+            while True:
+                if not resp:
+                    resp = getpass(cprompt.format(qm=term.text.bold_magenta('?'),
+                                                  prompt=prompt,
+                                                  default='')).strip()
+                else:
+                    break
+        return resp
 
 def yesno(prompt, default = None):
     """Presents the user with prompt (typically in the form of question) which
@@ -24,7 +129,8 @@ def yesno(prompt, default = None):
         raise ValueError('yesno(): default must be a boolean or None')
 
     if term.term_mode:
-        term.output(' [?] %s [' % prompt)
+        term.output(' [{qm}] {prompt} ['.format(qm = term.text.bold_cyan('?'),
+                                                prompt = prompt))
         yesfocus, yes = term.text.bold('Yes'), 'yes'
         nofocus, no = term.text.bold('No'), 'no'
         hy = term.output(yesfocus if default == True else yes)
@@ -46,10 +152,10 @@ def yesno(prompt, default = None):
                 if cur is not None:
                     return cur
     else:
-        prompt = ' [?] %s [%s/%s] ' % (prompt,
-                                       'Yes' if default == True else 'yes',
-                                       'No' if default == False else 'no',
-                                       )
+        prompt = ' [{qm}] {prompt} [{yes}/{no}] '.format(qm = term.text.bold_cyan('?'),
+                                                         prompt = prompt,
+                                                         yes = 'Yes' if default == True else 'yes',
+                                                         no = 'No' if default == False else 'no')
         while True:
             opt = raw_input(prompt).lower()
             if opt == '' and default != None:
@@ -78,7 +184,7 @@ def options(prompt, opts, default = None):
 
     if term.term_mode:
         numfmt = '%' + str(len(str(len(opts)))) + 'd) '
-        print ' [?] ' + prompt
+        print ' [{qm}] {prompt} ['.format(qm=term.text.bold_cyan('?'), prompt=prompt)
         hs = []
         space = '       '
         arrow = term.text.bold_green('    => ')
@@ -133,7 +239,7 @@ def options(prompt, opts, default = None):
     else:
         linefmt =       '       %' + str(len(str(len(opts)))) + 'd) %s'
         while True:
-            print ' [?] ' + prompt
+            print ' [{qm}] {prompt} ['.format(qm=term.text.bold_cyan('?'), prompt=prompt)
             for i, opt in enumerate(opts):
                 print linefmt % (i + 1, opt)
             s = '     Choice '
@@ -170,7 +276,7 @@ def more(text):
 
     Shows text like the command line tool ``more``.
 
-    It not in term_mode, just prints the data to the screen.
+    If not in term_mode, just prints the data to the screen.
 
     Arguments:
       text(str):  The text to show.
@@ -190,3 +296,118 @@ def more(text):
         h.delete()
     else:
         print text
+
+
+def less(text, filename=None):
+    """Print text in less-like mode.
+
+    Will display text that fit in terminal window and is scrollable.
+    While exiting, terminal will be cleared from diplayed text.
+
+    It reacts to the following keys :
+    `<down>`, `<enter>`, `<space>`, `<right>` : scroll down
+    `<up>`, `<backspace>`, `<left>`           : scroll up
+    'q', `<escape>`                           : exit
+
+    If not in term_mode, just prints the data to the screen.
+
+    Arguments:
+        text (string):               The large text to display.
+        filename (string, optional): The name of the file displayed.
+                                     Prints ': `filename`' at the bottom of terminal
+
+    Returns:
+        Nothing.
+    """
+    def init(text):
+        term.init()
+        lines = text.split('\n')
+        step = term.height - 1
+        c = term.output(getprintable(lines, 0, step, step))
+        h = term.output(term.text.reverse('(more)'), float = True, frozen = False)
+        return (lines, step, c, h)
+
+    def get_end_index(cursor, step, max):
+        return cursor + step if cursor + step < max else -1
+
+    def getprintable(lines, start, end, step):
+        return '\n'.join(lines[start:end]) + '\n'
+        """
+        istep = end - start if end != -1 else len(lines) - start
+        s = '\n'.join(lines[start:end]) + '\n'
+        if istep < step:
+            s += ' \n' * (1 + step - istep)
+        return s
+        """
+
+    def update_h(h, cursor, c_max, filename):
+        if cursor >= c_max:
+            h.update(term.text.reverse('(END)'))
+        elif cursor == 0:
+            h.update(term.text.reverse('(more)'))
+        else:
+            if filename:
+                h.update(term.text.reverse(': {fn}'.format(fn=filename)))
+            else:
+                h.update(term.text.reverse(':'))
+
+    if term.term_mode:
+        lines, step, c, h = init(text)
+        cursor = 0
+        cursor_max = len(lines) - step - 1
+
+        while True:
+            end = get_end_index(cursor, step, len(lines))
+
+            c.update(getprintable(lines, cursor, end, step))
+            update_h(h, cursor, cursor_max, filename)
+
+            k = term.key.get()
+            if k in ('<down>', '<enter>', '<space>', '<right>'):
+                if cursor < cursor_max:
+                    cursor += 1
+            elif k in ('<up>', '<backspace>', '<left>'):
+                if cursor > 0:
+                    cursor -= 1
+            elif k in ('q', '<escape>'):
+                c.delete()
+                h.delete()
+                break
+    else:
+        print text
+
+def highlight(filepath, linenos=False, mode=None):
+    """Simply highlight source files.
+
+    Arguments:
+        filepath (string):        The path to the file to be highlighted.
+        linenos (bool, optional): Whether to show line numbers or not.
+        mode (string, optional):  The display mode ('more' | 'less').
+
+    Returns:
+        Nothing.
+    """
+    from os import environ
+    fname = filepath.split('/')[-1]
+    with open(filepath, 'rb') as f:
+        src = f.read()
+        if src:
+            try:
+                lexer = guess_lexer(src)
+            except ClassNotFound:
+                print 'No lexer found... Print without formatting.'
+                print src
+            if 'xterm' in environ['TERM']:
+                formatter = Terminal256Formatter(linenos=linenos)
+            else:
+                formatter = TerminalFormatter(linenos=linenos)
+            highlighted = hl(src, lexer, formatter)
+            if mode:
+                if mode == 'more':
+                    more(highlighted)
+                elif mode == 'less':
+                    less(highlighted, filename=fname)
+                else:
+                    print highlighted
+            else:
+                print highlighted
