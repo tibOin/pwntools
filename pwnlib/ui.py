@@ -379,7 +379,7 @@ def less(text, filename=None):
 def highlight(filepath, linenos=False, mode=None):
     """Simply highlight source files.
 
-    Sometimes it might be useful to comfortably read source codes on targets...
+    Sometimes it might be useful to comfortably read source codes on targets.
 
     Arguments:
         filepath (string)          : The path to the file to be highlighted.
