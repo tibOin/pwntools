@@ -327,12 +327,23 @@ def less(text, filename=None):
         Nothing.
     """
     def init(text):
-        term.init()
-        lines = text.split('\n')
+        lines = get_lines(text) #text.split('\n')
         step = term.height - 1
         c = term.output(getprintable(lines, 0, step), float = True, frozen = False)
         f = term.output(term.text.reverse('(more)'), float = True, frozen = False)
         return (lines, step, c, f)
+
+    def get_lines(text):
+        #"""
+        lines = []
+        for line in text.split('\n'):
+            if len(line) <= term.width:
+                lines.append(line)
+            else:
+                lines += [line[i:i+term.width] for i in range(0, len(line), term.width)]
+        return lines
+        #"""
+
 
     def get_end_index(cursor, step, max):
         return cursor + step if cursor + step < max else -1
@@ -379,7 +390,7 @@ def less(text, filename=None):
 def highlight(filepath, linenos=False, mode=None):
     """Simply highlight source files.
 
-    Sometimes it might be useful to comfortably read source codes on targets.
+    Sometimes it might be useful to comfortably read source codes on targets...
 
     Arguments:
         filepath (string)          : The path to the file to be highlighted.
